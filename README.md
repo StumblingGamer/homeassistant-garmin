@@ -44,30 +44,6 @@ That is a paid secure remote-access option. You can also use your own HTTPS
 reverse proxy, Cloudflare Tunnel, VPN, or another secure external access method
 if it works from the phone running Garmin Connect.
 
-## Install The Integration Manually
-
-Copy this folder:
-
-```text
-custom_components/homeassistant_garmin
-```
-
-Into your Home Assistant config folder as:
-
-```text
-custom_components/homeassistant_garmin
-```
-
-Restart Home Assistant.
-
-Then add the integration:
-
-1. Go to **Settings > Devices & services**.
-2. Select **Add integration**.
-3. Search for **Home Assistant for Garmin**.
-4. Add it.
-5. Open **Garmin** from the Home Assistant sidebar.
-
 ## Configure GarminHomeAssistant
 
 In the Home Assistant sidebar builder, open **Watch App Settings**.
@@ -98,31 +74,6 @@ Start simple:
 
 Once that works, add more items, submenus, custom text, numeric pickers, and
 actions.
-
-## HACS Custom Repository
-
-After publishing a release, add this repository to HACS as a custom integration
-repository.
-
-The release zip should contain this path at the archive root:
-
-```text
-custom_components/homeassistant_garmin
-```
-
-Create that zip with:
-
-```powershell
-.\scripts\package-hacs.ps1
-```
-
-Recommended GitHub/HACS topics:
-
-```text
-home-assistant
-garmin
-connect-iq
-```
 
 ## Documentation
 

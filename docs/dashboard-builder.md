@@ -215,7 +215,7 @@ The builder currently supports:
 - run action items
 - numeric picker items
 - submenus and nested submenus
-- secondary text templates (aka content)
+- secondary text templates
 - emoji insertion
 - entity/template suggestions
 - item preview

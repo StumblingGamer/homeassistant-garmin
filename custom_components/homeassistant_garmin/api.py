@@ -1525,7 +1525,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         </ul>
       </div>
     </div>
-    <label for="item-content">Secondary text template (content field)</label>
+    <label for="item-content">Secondary text template</label>
     <div class="template-wrap">
       <input id="item-content" placeholder="{{ states('sensor.example') }}" autocomplete="off">
       <div class="template-suggestions" id="item-template-suggestions"></div>

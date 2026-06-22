@@ -4,6 +4,11 @@ The Dashboard Builder is the main Home Assistant interface for this project. It
 creates GarminHomeAssistant-compatible menu JSON without requiring the user to
 write JSON by hand.
 
+It is made for the
+[GarminHomeAssistant Connect IQ application](https://apps.garmin.com/en-US/apps/61c91d28-ec5e-438d-9f83-39e9f45b199d)
+by [house-of-abbey](https://github.com/house-of-abbey/GarminHomeAssistant).
+It is a companion builder, not a replacement watch app.
+
 Open it from the Home Assistant sidebar:
 
 ```text
@@ -24,6 +29,10 @@ GarminHomeAssistant Connect IQ app settings:
 - **API URL**
 - **Configuration URL**
 - **API key**, which is a Home Assistant long-lived access token
+
+The API key is not generated or stored by this builder. Create it from your Home
+Assistant user profile, copy it once, and paste it into GarminHomeAssistant. If
+it is exposed, revoke it and create a new one.
 
 The builder tries to choose the best base URL automatically. When Home Assistant
 Cloud / Nabu Casa is available, that URL is preferred because it is usually the
@@ -218,3 +227,9 @@ The builder currently supports:
 - advanced JSON editing
 
 The goal is to keep expanding form coverage so fewer users need the JSON editor.
+
+## Screenshots
+
+See [Screenshots](screenshots/README.md) for the current screenshot checklist.
+Screenshots should show the actual Home Assistant builder and the current
+GarminHomeAssistant companion workflow.

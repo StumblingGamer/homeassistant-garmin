@@ -9,33 +9,12 @@ from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.const import (
-    ATTR_DEVICE_CLASS,
     ATTR_FRIENDLY_NAME,
-    ATTR_ICON,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.json import json_dumps
-from homeassistant.util import dt as dt_util
 
 from .const import (
-    ACTION_PATH,
-    API_PATH,
-    ATTR_MESSAGE_CANDIDATES,
-    CONF_CONFIRM,
-    CONF_CONTENT_TEMPLATE,
-    CONF_ENTITY_ID,
-    CONF_ENABLED,
-    CONF_EXIT,
-    CONF_ICON,
-    CONF_PAIRING_CODE,
-    CONF_PIN,
-    CONF_SHOW_ON_GLANCE,
-    CONF_SORT_ORDER,
-    CONF_TITLE,
-    CONF_WATCH_BEHAVIOR,
-    DEFAULT_TITLE,
     DOMAIN,
     GARMIN_HOMEASSISTANT_BUILDER_PATH,
     GARMIN_HOMEASSISTANT_CONFIG_PATH,
@@ -43,129 +22,11 @@ from .const import (
     GARMIN_HOMEASSISTANT_ENTITIES_PATH,
     GARMIN_HOMEASSISTANT_SETUP_PATH,
     GARMIN_HOMEASSISTANT_TEMPLATE_PREVIEW_PATH,
-    WATCH_BEHAVIOR_AUTO,
-    WATCH_BEHAVIOR_NUMERIC,
-    WATCH_BEHAVIOR_INFO,
-    WATCH_BEHAVIOR_TAP,
-    WATCH_BEHAVIOR_LIGHT,
-    WATCH_BEHAVIOR_TOGGLE,
-    WATCH_BEHAVIOR_TRIGGER,
 )
 from .dashboard import async_get_dashboard, async_save_dashboard
 from .garmin_homeassistant_config import GarminDashboardItem, build_dashboard_config
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class HomeAssistantGarminStatusView(HomeAssistantView):
-    """Return the configured entity status for a Garmin Connect IQ app."""
-
-    url = API_PATH
-    name = f"api:{DOMAIN}:status"
-    requires_auth = False
-
-    async def get(self, request: web.Request, pairing_code: str) -> web.Response:
-        """Handle status requests from Garmin watches."""
-        hass: HomeAssistant = request.app["hass"]
-        entries = hass.data.get(DOMAIN, {}).get("entries", {})
-        entry = entries.get(pairing_code.upper())
-
-        if entry is None:
-            _LOGGER.warning("Invalid Home Assistant for Garmin configuration key used")
-            return _json_error("invalid_pairing_code", "Invalid configuration key", 404)
-
-        entity_id = entry.data[CONF_ENTITY_ID]
-        state = hass.states.get(entity_id)
-
-        if state is None:
-            _LOGGER.warning(
-                "Home Assistant for Garmin entity %s is missing for configuration key %s",
-                entity_id,
-                entry.data[CONF_PAIRING_CODE],
-            )
-            return _json_error("missing_entity", "Configured entity was not found", 404)
-
-        if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.info(
-                "Home Assistant for Garmin entity %s is currently %s",
-                entity_id,
-                state.state,
-            )
-            return _json_error("entity_unavailable", "Entity unavailable", 503)
-
-        payload = _payload_for_entry(hass, entry)
-        payload["items"] = _all_item_payloads(hass, entries)
-
-        _LOGGER.debug(
-            "Served Home Assistant for Garmin status for %s: %s",
-            entity_id,
-            payload["display_value"],
-        )
-        return _json_response(payload)
-
-
-class HomeAssistantGarminActionView(HomeAssistantView):
-    """Perform a small, approved action for a configured Garmin item."""
-
-    url = ACTION_PATH
-    name = f"api:{DOMAIN}:action"
-    requires_auth = False
-
-    async def post(self, request: web.Request, pairing_code: str) -> web.Response:
-        """Handle action requests from Garmin watches."""
-        hass: HomeAssistant = request.app["hass"]
-        entries = hass.data.get(DOMAIN, {}).get("entries", {})
-
-        if pairing_code.upper() not in entries:
-            _LOGGER.warning("Invalid Home Assistant for Garmin configuration key used for action")
-            return _json_error("invalid_pairing_code", "Invalid configuration key", 404)
-
-        entity_id = str(request.query.get("entity_id", ""))
-        if not entity_id:
-            try:
-                data = await request.json()
-            except ValueError:
-                data = {}
-            entity_id = str(data.get("entity_id", ""))
-
-        if not entity_id:
-            return _json_error("bad_request", "Missing entity id", 400)
-        entry = _entry_for_entity(entries, entity_id)
-        if entry is None:
-            return _json_error("unknown_entity", "Unknown Garmin item", 404)
-
-        state = hass.states.get(entity_id)
-        if state is None:
-            return _json_error("missing_entity", "Configured entity was not found", 404)
-
-        action_type = _entry_action_type(entry, state)
-        if action_type == "toggle":
-            await hass.services.async_call(
-                state.domain,
-                "toggle",
-                {"entity_id": entity_id},
-                blocking=True,
-            )
-        elif action_type == "trigger":
-            service = "trigger" if state.domain == "automation" else "turn_on"
-            await hass.services.async_call(
-                state.domain,
-                service,
-                {"entity_id": entity_id},
-                blocking=True,
-            )
-        else:
-            return _json_error("unsupported_action", "Item is informational", 400)
-
-        updated = _payload_for_entry(hass, entry)
-        return _json_response(
-            {
-                "ok": True,
-                "action": action_type,
-                "item": updated,
-                "items": _all_item_payloads(hass, entries),
-            }
-        )
 
 
 class GarminHomeAssistantConfigView(HomeAssistantView):
@@ -175,13 +36,12 @@ class GarminHomeAssistantConfigView(HomeAssistantView):
     name = f"api:{DOMAIN}:garminhomeassistant_config"
     requires_auth = False
 
-    async def get(self, request: web.Request, pairing_code: str) -> web.Response:
+    async def get(self, request: web.Request, setup_code: str) -> web.Response:
         """Return a GarminHomeAssistant-compatible dashboard config."""
         hass: HomeAssistant = request.app["hass"]
-        entries = hass.data.get(DOMAIN, {}).get("entries", {})
         dashboard = await async_get_dashboard(hass)
 
-        if pairing_code.upper() == dashboard["setup_code"]:
+        if setup_code.upper() == dashboard["setup_code"]:
             items = _dashboard_garmin_items(hass, dashboard.get("items", []))
             if not items:
                 return _json_error("no_items", "No Garmin dashboard items are available", 404)
@@ -199,24 +59,10 @@ class GarminHomeAssistantConfigView(HomeAssistantView):
                 )
             )
 
-        if pairing_code.upper() not in entries:
-            _LOGGER.warning(
-                "Invalid Home Assistant for Garmin configuration key used for GarminHomeAssistant config"
-            )
-            return _json_error("invalid_pairing_code", "Invalid configuration key", 404)
-
-        items = _garmin_homeassistant_items(hass, entries)
-        if not items:
-            return _json_error("no_items", "No Garmin items are available", 404)
-
-        first_item = items[0]
-        payload = build_dashboard_config(
-            items,
-            title="Home Assistant",
-            glance_content=f"{first_item.name}: {{{{ states('{first_item.entity_id}') }}}}",
+        _LOGGER.warning(
+            "Invalid Home Assistant for Garmin configuration key used for GarminHomeAssistant config"
         )
-
-        return _json_response(payload)
+        return _json_error("invalid_config_key", "Invalid configuration key", 404)
 
 
 class GarminHomeAssistantSetupView(HomeAssistantView):
@@ -226,26 +72,22 @@ class GarminHomeAssistantSetupView(HomeAssistantView):
     name = f"api:{DOMAIN}:garminhomeassistant_setup"
     requires_auth = False
 
-    async def get(self, request: web.Request, pairing_code: str) -> web.Response:
+    async def get(self, request: web.Request, setup_code: str) -> web.Response:
         """Return a small setup page users can open on their phone."""
         hass: HomeAssistant = request.app["hass"]
-        entries = hass.data.get(DOMAIN, {}).get("entries", {})
         dashboard = await async_get_dashboard(hass)
 
-        if (
-            pairing_code.upper() != dashboard["setup_code"]
-            and pairing_code.upper() not in entries
-        ):
+        if setup_code.upper() != dashboard["setup_code"]:
             _LOGGER.warning(
                 "Invalid Home Assistant for Garmin configuration key used for setup"
             )
-            return _json_error("invalid_pairing_code", "Invalid configuration key", 404)
+            return _json_error("invalid_config_key", "Invalid configuration key", 404)
 
         public_base_url = await _async_public_base_url(hass, request, dashboard)
         api_url = f"{public_base_url}/api"
         config_url = (
             f"{public_base_url}/api/homeassistant_garmin/"
-            f"garminhomeassistant/config/{pairing_code.upper()}"
+            f"garminhomeassistant/config/{setup_code.upper()}"
         )
 
         return web.Response(
@@ -436,67 +278,6 @@ def _json_error(code: str, message: str, status: int) -> web.Response:
     )
 
 
-def _all_item_payloads(hass: HomeAssistant, entries: dict) -> list[dict]:
-    """Return all available Garmin item payloads for the paired app."""
-    items = []
-    for item_entry in sorted(
-        entries.values(),
-        key=lambda item: (
-            _entry_value(item, CONF_SORT_ORDER, 50),
-            _entry_value(item, CONF_TITLE, DEFAULT_TITLE).lower(),
-        ),
-    ):
-        show_on_glance = _entry_value(item_entry, CONF_SHOW_ON_GLANCE, True)
-        if not show_on_glance:
-            continue
-
-        item_payload = _payload_for_entry(hass, item_entry)
-        if item_payload is not None:
-            items.append(item_payload)
-
-    return items
-
-
-def _garmin_homeassistant_items(
-    hass: HomeAssistant,
-    entries: dict,
-) -> list[GarminDashboardItem]:
-    """Build upstream GarminHomeAssistant menu items from configured entries."""
-    items: list[GarminDashboardItem] = []
-
-    for entry in sorted(
-        entries.values(),
-        key=lambda item: (
-            _entry_value(item, CONF_SORT_ORDER, 50),
-            _entry_value(item, CONF_TITLE, DEFAULT_TITLE).lower(),
-        ),
-    ):
-        entity_id = entry.data[CONF_ENTITY_ID]
-        state = hass.states.get(entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            continue
-
-        items.append(
-            GarminDashboardItem(
-                entity_id=entity_id,
-                name=_entry_value(entry, CONF_TITLE, DEFAULT_TITLE),
-                behavior=_garmin_homeassistant_behavior(entry, state),
-                content=_entry_value(
-                    entry,
-                    CONF_CONTENT_TEMPLATE,
-                    "",
-                )
-                or _garmin_homeassistant_content(state),
-                confirm=_entry_value(entry, CONF_CONFIRM, False),
-                pin=_entry_value(entry, CONF_PIN, False),
-                exit=_entry_value(entry, CONF_EXIT, False),
-                enabled=_entry_value(entry, CONF_ENABLED, True),
-            )
-        )
-
-    return items
-
-
 def _dashboard_garmin_items(
     hass: HomeAssistant,
     dashboard_items: list[dict],
@@ -566,25 +347,6 @@ def _parse_json_object(value: str) -> dict | None:
         return None
 
     return parsed
-
-
-def _garmin_homeassistant_behavior(entry, state: State) -> str:
-    """Map the local watch behavior to an upstream GarminHomeAssistant type."""
-    behavior = _entry_value(entry, CONF_WATCH_BEHAVIOR, WATCH_BEHAVIOR_AUTO)
-
-    if behavior in {WATCH_BEHAVIOR_TOGGLE, WATCH_BEHAVIOR_LIGHT}:
-        return "toggle"
-
-    if behavior in {WATCH_BEHAVIOR_TAP, WATCH_BEHAVIOR_TRIGGER}:
-        return "tap"
-
-    if behavior == WATCH_BEHAVIOR_INFO:
-        return "info"
-
-    if behavior == WATCH_BEHAVIOR_NUMERIC:
-        return "numeric"
-
-    return _inferred_garmin_homeassistant_behavior(state)
 
 
 def _inferred_garmin_homeassistant_behavior(state: State) -> str:
@@ -4187,147 +3949,3 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
 </html>"""
 
 
-def _entry_for_entity(entries: dict, entity_id: str):
-    """Find the configured entry for an entity id."""
-    for entry in entries.values():
-        if entry.data[CONF_ENTITY_ID] == entity_id:
-            return entry
-
-    return None
-
-
-def _payload_for_entry(hass: HomeAssistant, entry) -> dict | None:
-    """Build a watch-friendly payload for one configured item."""
-    entity_id = entry.data[CONF_ENTITY_ID]
-    state = hass.states.get(entity_id)
-
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        return None
-
-    return {
-        "title": _entry_value(entry, CONF_TITLE, DEFAULT_TITLE),
-        "entity_id": entity_id,
-        "domain": state.domain,
-        "device_class": state.attributes.get(ATTR_DEVICE_CLASS),
-        "icon": _entry_value(entry, CONF_ICON, "") or state.attributes.get(ATTR_ICON),
-        "action_type": _entry_action_type(entry, state),
-        "watch_behavior": _entry_value(entry, CONF_WATCH_BEHAVIOR, WATCH_BEHAVIOR_AUTO),
-        "show_on_glance": _entry_value(entry, CONF_SHOW_ON_GLANCE, True),
-        "state": state.state,
-        "state_color": _state_color(state),
-        "display_value": _display_value(state),
-        "message": _message(state),
-        "updated": dt_util.as_local(state.last_updated).isoformat(timespec="seconds"),
-    }
-
-
-def _entry_value(entry, key: str, fallback):
-    """Read an option override, falling back to original config data."""
-    if key in entry.options:
-        return entry.options[key]
-
-    return entry.data.get(key, fallback)
-
-
-def _entry_action_type(entry, state: State) -> str:
-    """Return the configured or inferred interaction type."""
-    behavior = _entry_value(entry, CONF_WATCH_BEHAVIOR, WATCH_BEHAVIOR_AUTO)
-
-    if behavior == WATCH_BEHAVIOR_INFO:
-        return "info"
-
-    if behavior == WATCH_BEHAVIOR_TOGGLE:
-        return "toggle"
-
-    if behavior == WATCH_BEHAVIOR_TRIGGER:
-        return "trigger"
-
-    if behavior == WATCH_BEHAVIOR_TAP:
-        return "trigger"
-
-    if behavior == WATCH_BEHAVIOR_LIGHT:
-        return "light"
-
-    return _action_type(state)
-
-
-def _action_type(state: State) -> str:
-    """Return the interaction type the Garmin app should expose."""
-    if state.domain in {"switch", "input_boolean", "light"}:
-        return "toggle"
-
-    if state.domain in {"automation", "scene", "script"}:
-        return "trigger"
-
-    return "info"
-
-
-def _display_value(state: State) -> str:
-    """Convert a Home Assistant state into compact watch-friendly text."""
-    state_text = str(state.state)
-
-    if state.domain != "binary_sensor":
-        return _primary_state_text(state_text)
-
-    title = str(state.attributes.get(ATTR_FRIENDLY_NAME, state.entity_id)).lower()
-    device_class = str(state.attributes.get(ATTR_DEVICE_CLASS, "")).lower()
-
-    if device_class in {"door", "garage_door", "opening", "window"} or "open" in title:
-        return "Open" if state.state == "on" else "Closed"
-
-    if device_class in {"problem", "safety", "smoke", "moisture", "gas", "tamper"}:
-        return "Active" if state.state == "on" else "Inactive"
-
-    return "Yes" if state.state == "on" else "No"
-
-
-def _message(state: State) -> str:
-    """Find a human-friendly message from common entity attributes."""
-    for attr_name in ATTR_MESSAGE_CANDIDATES:
-        value = state.attributes.get(attr_name)
-        if value:
-            return str(value)
-
-    state_detail = _secondary_state_text(str(state.state))
-    if state_detail:
-        return state_detail
-
-    return str(state.attributes.get(ATTR_FRIENDLY_NAME, state.entity_id))
-
-
-def _primary_state_text(state_text: str) -> str:
-    """Return the shortest useful part of a compound state string."""
-    for separator in (" - ", ": "):
-        if separator in state_text:
-            return state_text.split(separator, 1)[0]
-
-    return state_text
-
-
-def _secondary_state_text(state_text: str) -> str | None:
-    """Return a compact detail from a compound state string if one exists."""
-    for separator in (" - ", ": "):
-        if separator in state_text:
-            return state_text.split(separator, 1)[1]
-
-    return None
-
-
-def _state_color(state: State) -> str:
-    """Return a compact semantic color name for the Garmin UI."""
-    state_text = str(state.state).lower()
-    device_class = str(state.attributes.get(ATTR_DEVICE_CLASS, "")).lower()
-    title = str(state.attributes.get(ATTR_FRIENDLY_NAME, state.entity_id)).lower()
-
-    if state_text in {"on", "open", "active", "unlocked"}:
-        if device_class in {"door", "garage_door", "opening", "window", "lock"} or "open" in title:
-            return "amber"
-        return "green"
-
-    if state_text.startswith("open"):
-        return "amber"
-
-    if state_text in {"off", "closed", "inactive", "locked"}:
-        return "blue"
-
-    return "neutral"

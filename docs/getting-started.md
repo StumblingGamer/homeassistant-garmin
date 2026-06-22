@@ -6,6 +6,10 @@ Home Assistant for Garmin is the Home Assistant companion builder for the
 The watch app runs on your Garmin device. This integration runs inside Home
 Assistant and helps you build the menu that the watch app displays.
 
+This project is made for GarminHomeAssistant by house-of-abbey, but it is not
+affiliated with, endorsed by, or official to GarminHomeAssistant unless accepted
+upstream by that project.
+
 This guide is written for a first-time setup.
 
 ## The Big Picture
@@ -32,12 +36,38 @@ The useful mental model:
 - Home Assistant for Garmin is the menu/configuration builder.
 - GarminHomeAssistant reads the saved menu from the Configuration URL.
 
-## Step 1: Install The Home Assistant Integration
+## Step 1: Install The Home Assistant Integration With HACS
+
+Until Home Assistant for Garmin is available as a default HACS repository, add
+it as a custom repository:
+
+1. Open **HACS** in Home Assistant.
+2. Open the three-dot menu.
+3. Select **Custom repositories**.
+4. Repository: `https://github.com/StumblingGamer/homeassistant-garmin`
+5. Category: **Integration**.
+6. Select **Add**.
+7. Install **Home Assistant for Garmin**.
+8. Restart Home Assistant.
+
+After restart, go to:
+
+```text
+Settings > Devices & services > Add integration
+```
+
+Search for **Home Assistant for Garmin** and add it.
+
+After the integration loads, open **Garmin** from the Home Assistant sidebar.
+
+## Manual Install Fallback
+
+If you are not using HACS, copy this folder from the repository:
 
 Copy:
 
 ```text
-home-assistant/custom_components/homeassistant_garmin
+custom_components/homeassistant_garmin
 ```
 
 to:
@@ -312,6 +342,24 @@ Use this checklist if you are not sure what step you are on:
 7. At least one item added in the builder.
 8. Dashboard saved.
 9. GarminHomeAssistant reopened on the watch.
+
+## Mobile App Checklist
+
+Use this to confirm the setup works from the Home Assistant mobile app:
+
+1. Open the Home Assistant mobile app.
+2. Open **Garmin** from the sidebar.
+3. Open **Watch App Settings**.
+4. Copy the API URL.
+5. Copy the Configuration URL.
+6. Paste both values into GarminHomeAssistant settings in Garmin Connect /
+   Connect IQ.
+7. Add or edit one item from the mobile builder.
+8. Select **Save dashboard**.
+9. Reopen GarminHomeAssistant on the watch and confirm the item appears.
+
+If an external app or documentation link does not open from the mobile app, use
+the copy button and paste the URL into your phone browser.
 
 ## Troubleshooting
 

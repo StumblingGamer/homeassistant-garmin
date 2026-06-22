@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Home Assistant for Garmin",
-        "description": "This enables the Garmin sidebar builder and API endpoints. After setup, open Garmin from the Home Assistant sidebar to build the GarminHomeAssistant menu and copy the app settings."
+        "description": "This enables the GarminHomeAssistant companion builder. After setup, open Garmin from the Home Assistant sidebar to build the watch menu and copy the app settings."
       }
     },
     "abort": {

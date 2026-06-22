@@ -15,10 +15,8 @@ from .api import (
     GarminHomeAssistantGettingStartedView,
     GarminHomeAssistantSetupView,
     GarminHomeAssistantTemplatePreviewView,
-    HomeAssistantGarminActionView,
-    HomeAssistantGarminStatusView,
 )
-from .const import CONF_PAIRING_CODE, DOMAIN
+from .const import DOMAIN
 from .dashboard import async_setup_dashboard_store
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,36 +37,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Home Assistant for Garmin from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN].setdefault("entries", {})
     _async_register_view(hass)
     _async_register_panel(hass)
-
-    pairing_code = entry.data.get(CONF_PAIRING_CODE)
-    if pairing_code is None:
-        _LOGGER.info("Loaded Home Assistant for Garmin builder entry")
-        return True
-
-    hass.data[DOMAIN]["entries"][pairing_code] = entry
-
-    _LOGGER.info(
-        "Loaded Home Assistant for Garmin entry '%s' with configuration key %s",
-        entry.title,
-        pairing_code,
-    )
+    _LOGGER.info("Loaded Home Assistant for Garmin builder entry")
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Home Assistant for Garmin config entry."""
-    pairing_code = entry.data.get(CONF_PAIRING_CODE)
-    if pairing_code is None:
-        _LOGGER.info("Unloaded Home Assistant for Garmin builder entry")
-        return True
-
-    entries = hass.data.get(DOMAIN, {}).get("entries", {})
-    entries.pop(pairing_code, None)
-    _LOGGER.info("Unloaded Home Assistant for Garmin entry '%s'", entry.title)
+    _LOGGER.info("Unloaded Home Assistant for Garmin builder entry")
     return True
 
 
@@ -79,12 +57,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _async_register_view(hass: HomeAssistant) -> None:
-    """Register the Garmin status endpoint once."""
+    """Register the GarminHomeAssistant companion endpoints once."""
     if hass.data[DOMAIN].get("view_registered"):
         return
 
-    hass.http.register_view(HomeAssistantGarminStatusView)
-    hass.http.register_view(HomeAssistantGarminActionView)
     hass.http.register_view(GarminHomeAssistantConfigView)
     hass.http.register_view(GarminHomeAssistantSetupView)
     hass.http.register_view(GarminHomeAssistantDashboardView)

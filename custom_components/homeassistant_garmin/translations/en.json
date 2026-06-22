@@ -1,0 +1,14 @@
+{
+  "title": "Home Assistant for Garmin",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Assistant for Garmin",
+        "description": "This enables the Garmin sidebar builder and API endpoints. After setup, open Garmin from the Home Assistant sidebar to build the GarminHomeAssistant menu and copy the app settings."
+      }
+    },
+    "abort": {
+      "already_configured": "Home Assistant for Garmin is already set up. Open Garmin from the Home Assistant sidebar."
+    }
+  }
+}

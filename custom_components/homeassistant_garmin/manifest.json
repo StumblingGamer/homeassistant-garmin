@@ -1,0 +1,12 @@
+{
+  "domain": "homeassistant_garmin",
+  "name": "Home Assistant for Garmin",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/StumblingGamer/homeassistant-garmin",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/StumblingGamer/homeassistant-garmin/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

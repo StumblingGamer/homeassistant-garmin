@@ -1,0 +1,12 @@
+# Local Garmin Connect IQ build artifacts and signing keys
+bin/
+*.prg
+*.iq
+*.debug.xml
+*.der
+*.pem
+.local/
+
+# Python cache files from Home Assistant validation
+__pycache__/
+*.pyc

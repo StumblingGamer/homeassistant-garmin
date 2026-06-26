@@ -15,6 +15,7 @@ from .api import (
     GarminHomeAssistantGettingStartedView,
     GarminHomeAssistantSetupView,
     GarminHomeAssistantTemplatePreviewView,
+    GarminHomeAssistantValidateView,
 )
 from .const import DOMAIN
 from .dashboard import async_setup_dashboard_store
@@ -66,6 +67,7 @@ def _async_register_view(hass: HomeAssistant) -> None:
     hass.http.register_view(GarminHomeAssistantDashboardView)
     hass.http.register_view(GarminHomeAssistantEntitiesView)
     hass.http.register_view(GarminHomeAssistantTemplatePreviewView)
+    hass.http.register_view(GarminHomeAssistantValidateView)
     hass.http.register_view(GarminHomeAssistantBuilderView)
     hass.http.register_view(GarminHomeAssistantGettingStartedView)
     hass.data[DOMAIN]["view_registered"] = True

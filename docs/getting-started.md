@@ -193,8 +193,9 @@ In the builder:
 2. Search for the entity.
 3. Let **Name on watch** auto-fill, or change it.
 4. Leave **Behavior** on **Automatic**.
-5. Select **Add item**.
-6. Select **Save dashboard**.
+5. Optionally add a **Watch row content template**.
+6. Select **Add item**.
+7. Select **Save dashboard**.
 
 Open GarminHomeAssistant on the watch. You should see the item you added.
 
@@ -221,7 +222,8 @@ want.
 
 **Info only**
 
-Displays status or text without running an action.
+Displays status or text without running an action. The **Watch row content
+template** is the main value shown by an info item.
 
 **Number picker**
 
@@ -299,9 +301,12 @@ The Glance section controls what GarminHomeAssistant shows in the glance area.
 
 After changing glance behavior, use **Update and save glance**.
 
-## Templates And Emoji
+## Watch Row Content Templates
 
-Secondary text fields can use Home Assistant templates. For example:
+GarminHomeAssistant calls the smaller text under a row name `content`. In this
+builder, that field is labeled **Watch row content template**.
+
+Content templates can use Home Assistant templates. For example:
 
 ```text
 {{ states('sensor.outdoor_temperature') }} degrees
@@ -311,8 +316,16 @@ The builder includes:
 
 - entity suggestions while typing templates
 - an **Insert selected entity state** button
-- emoji picker buttons for names and secondary text
+- a **Template helper** dropdown with common examples
+- emoji picker buttons for names and content templates
 - a preview row so you can see roughly how the item will look
+
+Template helpers include common smart-home patterns such as friendly on/off
+text, light brightness percentage, media volume percentage, battery percentage,
+and amplifier dB display from a media player's `volume_level` attribute.
+
+Content is required for info rows. It is optional for toggles, run actions,
+number pickers, and submenus.
 
 ## Save Matters
 

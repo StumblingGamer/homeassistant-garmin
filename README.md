@@ -1,54 +1,92 @@
 # Home Assistant for Garmin
 
-`homeassistant-garmin` is a Home Assistant custom integration that acts as a
-companion builder for the open-source
+`homeassistant-garmin` is a Home Assistant custom integration that helps you
+build menus for the open-source
 [GarminHomeAssistant Connect IQ application](https://apps.garmin.com/en-US/apps/61c91d28-ec5e-438d-9f83-39e9f45b199d)
-by house-of-abbey.
+by [house-of-abbey](https://github.com/house-of-abbey/GarminHomeAssistant).
 
-GarminHomeAssistant provides the watch app. This integration provides the Home
-Assistant-side setup experience: choose entities, build the watch menu, generate
-the GarminHomeAssistant JSON configuration, and copy the URLs needed in the
-Connect IQ app settings.
+GarminHomeAssistant is the Garmin watch app. Home Assistant for Garmin is the
+Home Assistant companion builder for that app.
 
-## What This Project Does
+> Made for GarminHomeAssistant by house-of-abbey.
+> This project is not affiliated with, endorsed by, or official to
+> GarminHomeAssistant unless it is accepted upstream by that project.
 
-Home Assistant for Garmin gives you a **Garmin** sidebar page in Home Assistant
-where you can:
+## What It Does
 
-- build a GarminHomeAssistant menu without hand-writing JSON
-- add Home Assistant entities as watch menu items
-- create submenus for rooms, areas, or control groups
-- configure common GarminHomeAssistant item types: info, toggle, run action,
-  numeric picker, and submenu
-- add glance text
+Home Assistant for Garmin adds a **Garmin** page to the Home Assistant sidebar.
+Use it to:
+
+- pick Home Assistant entities from a friendly UI
+- build the GarminHomeAssistant watch menu without hand-writing JSON
+- create info rows, toggles, action rows, number pickers, and submenus
+- add watch row content templates with live preview
+- use emoji and Home Assistant templates in watch labels
 - reorder, edit, and remove menu items
-- use templates and emoji in watch labels and secondary text
-- copy the GarminHomeAssistant API URL and Configuration URL
-- save the generated dashboard configuration from Home Assistant
+- copy the API URL and Configuration URL required by GarminHomeAssistant
 
-The watch app still uses the standard GarminHomeAssistant authentication model:
-you create a Home Assistant long-lived access token and paste it into the
-GarminHomeAssistant app settings on your phone.
+This repository does not include a separate Garmin watch app. Install
+GarminHomeAssistant from Garmin Connect IQ.
 
 ## What You Need
 
 1. Home Assistant.
-2. This custom integration installed under `custom_components/homeassistant_garmin`.
-3. The GarminHomeAssistant Connect IQ app installed on your watch through Garmin
-   Connect IQ.
+2. HACS, or the ability to manually copy a custom integration.
+3. The GarminHomeAssistant app installed on your Garmin watch.
 4. A Home Assistant URL your phone can reach.
 5. A Home Assistant long-lived access token.
 
-For many users, the easiest reachable URL is Home Assistant Cloud / Nabu Casa.
-That is a paid secure remote-access option. You can also use your own HTTPS
-reverse proxy, Cloudflare Tunnel, VPN, or another secure external access method
-if it works from the phone running Garmin Connect.
+For many users, Home Assistant Cloud / Nabu Casa is the easiest secure remote
+URL. It is a paid option. You can also use your own HTTPS reverse proxy,
+Cloudflare Tunnel, VPN, or another secure method if it works from the phone that
+runs Garmin Connect / Connect IQ.
+
+## Install With HACS
+
+Until this repository is available as a default HACS repository, add it as a
+custom repository:
+
+1. Open **HACS** in Home Assistant.
+2. Open the three-dot menu.
+3. Select **Custom repositories**.
+4. Repository: `https://github.com/StumblingGamer/homeassistant-garmin`
+5. Category: **Integration**.
+6. Select **Add**.
+7. Install **Home Assistant for Garmin**.
+8. Restart Home Assistant.
+
+Then add the integration:
+
+1. Go to **Settings > Devices & services**.
+2. Select **Add integration**.
+3. Search for **Home Assistant for Garmin**.
+4. Add it.
+5. Open **Garmin** from the Home Assistant sidebar.
+
+## Manual Install
+
+Copy this folder from the repository:
+
+```text
+custom_components/homeassistant_garmin
+```
+
+Into your Home Assistant config folder as:
+
+```text
+custom_components/homeassistant_garmin
+```
+
+Restart Home Assistant, then add the integration from
+**Settings > Devices & services > Add integration**.
 
 ## Configure GarminHomeAssistant
 
-In the Home Assistant sidebar builder, open **Watch App Settings**.
+In Home Assistant, open **Garmin** from the sidebar, then open
+**Watch App Settings**.
 
-Copy these values into the GarminHomeAssistant settings in Garmin Connect IQ:
+Copy these values into GarminHomeAssistant settings in Garmin Connect / Connect
+IQ on your phone:
 
 | GarminHomeAssistant setting | What to paste |
 | --- | --- |
@@ -56,24 +94,49 @@ Copy these values into the GarminHomeAssistant settings in Garmin Connect IQ:
 | Configuration URL | The builder's Configuration URL |
 | API key | A Home Assistant long-lived access token |
 
-Create the long-lived token in Home Assistant from your user profile. Home
-Assistant only shows the token once, so copy it immediately and store it
-somewhere safe if needed.
+## Security Note
 
-## Build Your Watch Menu
+The GarminHomeAssistant API key is a Home Assistant long-lived access token.
+Treat it like a password.
+
+- Create a dedicated token named something like `GarminHomeAssistant`.
+- Home Assistant only shows the token once.
+- Paste the token only into GarminHomeAssistant settings.
+- If the token is exposed, delete it from your Home Assistant profile and create
+  a new one.
+- Prefer HTTPS for any URL used away from home.
+
+This builder does not need to generate or store your long-lived token.
+
+## Build Your First Menu Item
 
 Start simple:
 
-1. In **Add Item**, choose an entity.
+1. In **Add Item**, choose a light, switch, sensor, script, or scene.
 2. Let **Name on watch** auto-fill, or edit it.
 3. Leave **Behavior** on **Automatic** for the first test.
-4. Leave **Secondary text template** blank unless you want a second line.
+4. Leave **Watch row content template** blank unless you want custom text.
 5. Select **Add item**.
 6. Select **Save dashboard**.
 7. Open GarminHomeAssistant on the watch.
 
-Once that works, add more items, submenus, custom text, numeric pickers, and
-actions.
+For sensors and info rows, the builder can provide a simple state template. For
+more polished rows, use the template helper beside **Watch row content
+template**.
+
+## Mobile Setup
+
+The builder is designed to work in the Home Assistant mobile app:
+
+1. Open the Home Assistant mobile app.
+2. Open **Garmin** from the sidebar.
+3. Copy the API URL and Configuration URL.
+4. Paste them into GarminHomeAssistant settings in Garmin Connect / Connect IQ.
+5. Add or edit menu items.
+6. Save the dashboard.
+
+Some mobile web views block external links. If a link does not open, use the
+copy button and paste the URL into your browser or Garmin app.
 
 ## Documentation
 
@@ -91,7 +154,7 @@ Configuration URL.
 **The app cannot connect**
 
 Confirm the API URL and Configuration URL use a Home Assistant URL reachable
-from your phone. If Nabu Casa is enabled, the builder should prefer that URL.
+from your phone.
 
 **Actions do nothing**
 
@@ -100,5 +163,5 @@ setting and has not been revoked.
 
 **The generated menu looks wrong**
 
-Use the builder's JSON preview to inspect the generated GarminHomeAssistant
-configuration, then adjust the item behavior or advanced fields.
+Use **View Garmin JSON** in the builder to inspect what GarminHomeAssistant will
+read.

@@ -1,7 +1,7 @@
 {
   "domain": "homeassistant_garmin",
   "name": "Home Assistant for Garmin",
-  "codeowners": [],
+  "codeowners": ["@StumblingGamer"],
   "config_flow": true,
   "documentation": "https://github.com/StumblingGamer/homeassistant-garmin",
   "integration_type": "service",

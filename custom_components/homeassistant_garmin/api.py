@@ -1,4 +1,4 @@
-""HTTP API for Home Assistant for Garmin."""
+"""HTTP API for Home Assistant for Garmin."""
 
 from __future__ import annotations
 
@@ -319,7 +319,7 @@ class GarminHomeAssistantValidateView(HomeAssistantView):
 
 
 def _json_response(payload: dict, status: int = 200) -> web.Response:
-    """Return a JSON response using Home Assistant's JSON encoder."""
+    """Return a JSON response using the Home Assistant JSON encoder."""
     return web.Response(
         text=json_dumps(payload),
         status=status,

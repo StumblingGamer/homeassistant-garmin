@@ -6,6 +6,7 @@ import logging
 from homeassistant.components import frontend
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .api import (
     GarminHomeAssistantBuilderView,
@@ -21,6 +22,8 @@ from .const import DOMAIN
 from .dashboard import async_setup_dashboard_store
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS: list[str] = []
 

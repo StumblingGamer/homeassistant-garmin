@@ -22,6 +22,7 @@ from .const import (
     GARMIN_HOMEASSISTANT_ENTITIES_PATH,
     GARMIN_HOMEASSISTANT_SETUP_PATH,
     GARMIN_HOMEASSISTANT_TEMPLATE_PREVIEW_PATH,
+    GARMIN_HOMEASSISTANT_VALIDATE_PATH,
 )
 from .dashboard import async_get_dashboard, async_save_dashboard
 from .garmin_homeassistant_config import GarminDashboardItem, build_dashboard_config
@@ -258,6 +259,56 @@ class GarminHomeAssistantTemplatePreviewView(HomeAssistantView):
         return _json_response({"result": str(result)})
 
 
+class GarminHomeAssistantValidateView(HomeAssistantView):
+    """Validate generated GarminHomeAssistant JSON without saving changes."""
+
+    url = GARMIN_HOMEASSISTANT_VALIDATE_PATH
+    name = f"api:{DOMAIN}:garminhomeassistant_validate"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Build and validate GarminHomeAssistant JSON from a dashboard draft."""
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            data = await request.json()
+        except ValueError:
+            return _json_error("bad_request", "Expected JSON body", 400)
+
+        dashboard = await async_get_dashboard(hass)
+        if str(data.get("setup_code", "")).upper() != dashboard["setup_code"]:
+            return _json_error("invalid_setup_code", "Invalid setup code", 403)
+
+        items = _dashboard_garmin_items(hass, data.get("items", []))
+        if not items:
+            return _json_response(
+                {
+                    "valid": False,
+                    "errors": ["No valid GarminHomeAssistant items were generated."],
+                    "warnings": [],
+                }
+            )
+
+        glance = data.get("glance", {})
+        glance_content = None
+        if isinstance(glance, dict) and glance.get("type") == "info" and glance.get("content"):
+            glance_content = str(glance["content"])
+
+        config = build_dashboard_config(
+            items,
+            title=str(data.get("title") or "Home Assistant"),
+            glance_content=glance_content,
+        )
+        errors, warnings = _validate_garmin_homeassistant_config(config)
+        return _json_response(
+            {
+                "valid": not errors,
+                "errors": errors,
+                "warnings": warnings,
+                "config": config,
+            }
+        )
+
+
 def _json_response(payload: dict, status: int = 200) -> web.Response:
     """Return a JSON response using Home Assistant's JSON encoder."""
     return web.Response(
@@ -276,6 +327,153 @@ def _json_error(code: str, message: str, status: int) -> web.Response:
         },
         status=status,
     )
+
+
+def _validate_garmin_homeassistant_config(config: dict) -> tuple[list[str], list[str]]:
+    """Validate the generated GarminHomeAssistant JSON shape."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not isinstance(config.get("items"), list) or not config["items"]:
+        errors.append("Top-level items must contain at least one item.")
+        return errors, warnings
+
+    for index, item in enumerate(config["items"]):
+        _validate_garmin_item(item, f"items[{index}]", errors, warnings)
+
+    glance = config.get("glance")
+    if glance is not None:
+        if not isinstance(glance, dict):
+            errors.append("glance must be an object when present.")
+        elif glance.get("type") == "info" and not isinstance(glance.get("content"), str):
+            errors.append("glance.content must be text when glance.type is info.")
+
+    return errors, warnings
+
+
+def _validate_garmin_item(
+    item: dict,
+    path: str,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    """Validate one generated GarminHomeAssistant item."""
+    if not isinstance(item, dict):
+        errors.append(f"{path} must be an object.")
+        return
+
+    item_type = item.get("type")
+    if item_type not in {"info", "toggle", "tap", "numeric", "group"}:
+        errors.append(f"{path}.type must be info, toggle, tap, numeric, or group.")
+
+    if not isinstance(item.get("name"), str) or not item["name"].strip():
+        errors.append(f"{path}.name is required.")
+
+    if "content" in item and not isinstance(item["content"], str):
+        errors.append(f"{path}.content must be text.")
+
+    if "enabled" in item and not isinstance(item["enabled"], bool):
+        errors.append(f"{path}.enabled must be true or false.")
+
+    if item_type in {"toggle", "numeric"}:
+        _validate_entity(item, path, errors)
+
+    if item_type == "info" and not isinstance(item.get("content"), str):
+        errors.append(f"{path}.content is required for info items.")
+    elif item_type == "tap":
+        _validate_tap_action(item.get("tap_action"), path, errors, warnings)
+    elif item_type == "toggle":
+        tap_action = item.get("tap_action")
+        if tap_action is not None:
+            _validate_tap_action(tap_action, path, errors, warnings, action_required=False)
+    elif item_type == "numeric":
+        _validate_numeric_action(item.get("tap_action"), path, errors, warnings)
+    elif item_type == "group":
+        children = item.get("items")
+        if not isinstance(children, list):
+            errors.append(f"{path}.items must be a list for submenus.")
+        else:
+            for index, child in enumerate(children):
+                _validate_garmin_item(child, f"{path}.items[{index}]", errors, warnings)
+
+
+def _validate_entity(item: dict, path: str, errors: list[str]) -> None:
+    entity = item.get("entity")
+    if not isinstance(entity, str) or "." not in entity:
+        errors.append(f"{path}.entity must be a Home Assistant entity id.")
+
+
+def _validate_tap_action(
+    tap_action: object,
+    path: str,
+    errors: list[str],
+    warnings: list[str],
+    *,
+    action_required: bool = True,
+) -> None:
+    if not isinstance(tap_action, dict):
+        if action_required:
+            errors.append(f"{path}.tap_action is required.")
+        return
+
+    action = tap_action.get("action")
+    if action_required and (not isinstance(action, str) or "." not in action):
+        errors.append(f"{path}.tap_action.action must be a Home Assistant action.")
+
+    data = tap_action.get("data")
+    if data is not None and not isinstance(data, dict):
+        errors.append(f"{path}.tap_action.data must be an object.")
+
+    _validate_tap_safety(tap_action, path, errors)
+
+
+def _validate_numeric_action(
+    tap_action: object,
+    path: str,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    _validate_tap_action(tap_action, path, errors, warnings)
+    if not isinstance(tap_action, dict):
+        return
+
+    picker = tap_action.get("picker")
+    if not isinstance(picker, dict):
+        errors.append(f"{path}.tap_action.picker is required for numeric items.")
+        return
+
+    for field in ("min", "max", "step"):
+        if not _is_json_number(picker.get(field)):
+            errors.append(f"{path}.tap_action.picker.{field} must be a number.")
+
+    data_attribute = picker.get("data_attribute")
+    if not isinstance(data_attribute, str) or not data_attribute.strip():
+        errors.append(f"{path}.tap_action.picker.data_attribute is required.")
+
+    if "attribute" in picker and not isinstance(picker["attribute"], str):
+        errors.append(f"{path}.tap_action.picker.attribute must be text.")
+
+    data = tap_action.get("data")
+    if isinstance(data, dict) and isinstance(data_attribute, str) and data_attribute in data:
+        warnings.append(
+            f"{path}.tap_action.data already contains {data_attribute}; "
+            "the picker value should override it."
+        )
+
+
+def _validate_tap_safety(tap_action: dict, path: str, errors: list[str]) -> None:
+    confirm = tap_action.get("confirm")
+    if confirm is not None and not isinstance(confirm, (bool, str)):
+        errors.append(f"{path}.tap_action.confirm must be true, false, or text.")
+
+    for field in ("pin", "exit"):
+        if field in tap_action and not isinstance(tap_action[field], bool):
+            errors.append(f"{path}.tap_action.{field} must be true or false.")
+
+
+def _is_json_number(value: object) -> bool:
+    """Return true for JSON numbers, excluding booleans."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _dashboard_garmin_items(
@@ -298,16 +496,12 @@ def _dashboard_garmin_items(
         if behavior == "auto" and state is not None:
             behavior = _inferred_garmin_homeassistant_behavior(state)
 
-        content = str(item.get("content") or "")
-        if not content and state is not None:
-            content = _garmin_homeassistant_content(state)
-
         items.append(
             GarminDashboardItem(
                 entity_id=entity_id,
                 name=str(item.get("name") or entity_id or "Group"),
                 behavior=behavior,
-                content=content,
+                content=_dashboard_item_content(item, behavior, state),
                 title=str(item.get("title") or item.get("name") or "Group"),
                 tap_action_action=str(item.get("tap_action_action") or ""),
                 tap_action_data=_parse_json_object(
@@ -366,6 +560,18 @@ def _inferred_garmin_homeassistant_behavior(state: State) -> str:
 def _garmin_homeassistant_content(state: State) -> str:
     """Return a compact template for GarminHomeAssistant item subtitles."""
     return "{{ states('" + state.entity_id + "') }}"
+
+
+def _dashboard_item_content(item: dict, behavior: str, state: State | None) -> str:
+    """Return explicit content, with a safe default only for required info rows."""
+    content = str(item.get("content") or "")
+    if content:
+        return content
+
+    if behavior == "info" and state is not None:
+        return _garmin_homeassistant_content(state)
+
+    return ""
 
 
 def _request_base_url(request: web.Request) -> str:
@@ -700,17 +906,22 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       white-space: pre;
     }}
     button, a.button {{
+      align-items: center;
       background: #03a9f4;
       border: 0;
       border-radius: 6px;
       color: #00151f;
       cursor: pointer;
-      display: inline-block;
+      display: inline-flex;
       font-weight: 700;
-      margin: .8rem .5rem .2rem 0;
-      padding: .7rem 1rem;
+      justify-content: center;
+      line-height: 1.15;
+      margin: .55rem .45rem .15rem 0;
+      min-height: 2.25rem;
+      padding: .48rem .8rem;
       text-decoration: none;
       touch-action: manipulation;
+      white-space: nowrap;
     }}
     .secondary {{
       background: #333;
@@ -728,19 +939,22 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       padding: .8rem;
     }}
     .grid {{
+      align-items: start;
       display: grid;
-      gap: .8rem;
+      gap: .85rem 1rem;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }}
     .copy-row {{
+      align-items: stretch;
       display: grid;
       gap: .45rem;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      margin-bottom: .8rem;
     }}
     .copy-button {{
       margin: 0;
       min-width: 46px;
-      padding: .7rem;
+      padding: .48rem .7rem;
     }}
     .primary-button {{
       background: #03a9f4;
@@ -812,8 +1026,8 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       line-height: 1.25;
     }}
     .item-actions {{
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(4, max-content);
       gap: .35rem;
       justify-content: flex-end;
     }}
@@ -821,20 +1035,21 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       background: #03a9f4;
       color: #00151f;
       margin: 0;
+      min-height: 1.9rem;
       min-width: 0;
-      padding: .45rem .6rem;
+      padding: .28rem .5rem;
     }}
     .action-up {{
-      width: 3.5rem;
+      width: 2rem;
     }}
     .action-down {{
-      width: 4.35rem;
+      width: 2rem;
     }}
     .action-edit {{
-      width: 3.9rem;
+      width: 3.4rem;
     }}
     .action-remove {{
-      width: 5.6rem;
+      width: 4.9rem;
     }}
     .danger {{
       background: #03a9f4;
@@ -973,6 +1188,15 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     .unsaved-detail {{
       color: #b9c5d0;
       font-size: .86rem;
+    }}
+    .validation-detail.valid {{
+      color: #9ee493;
+    }}
+    .validation-detail.warning {{
+      color: #ffd166;
+    }}
+    .validation-detail.error {{
+      color: #ffd2d2;
     }}
     .unsaved-actions {{
       display: flex;
@@ -1177,12 +1401,80 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     .template-wrap {{
       position: relative;
     }}
+    .text-input-with-action {{
+      align-items: stretch;
+      display: grid;
+      gap: .45rem;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }}
+    .text-input-with-action .template-wrap {{
+      min-width: 0;
+    }}
+    .inline-emoji {{
+      align-self: stretch;
+      margin: 0;
+    }}
+    .inline-emoji .emoji-toggle {{
+      font-size: 1.05rem;
+      height: 100%;
+      margin: 0;
+      min-height: 0;
+      min-width: 2.35rem;
+      padding: .35rem .55rem;
+    }}
+    .template-control-row {{
+      align-items: stretch;
+      display: grid;
+      gap: .5rem;
+      grid-template-columns: minmax(13rem, 22rem) max-content minmax(0, 1fr);
+      margin-top: .65rem;
+    }}
+    .template-control-row .content-helper {{
+      display: contents;
+    }}
+    .template-control-row select,
+    .template-control-row button {{
+      height: 2.65rem;
+      margin: 0;
+      min-height: 0;
+    }}
+    .template-control-row > .item-meta {{
+      align-self: center;
+      margin: 0;
+    }}
     .template-tools {{
       align-items: center;
       display: flex;
       flex-wrap: wrap;
       gap: .5rem;
-      margin-top: .45rem;
+      margin-top: .6rem;
+    }}
+    .template-tools button,
+    .template-tools .emoji-picker,
+    .template-tools .emoji-toggle {{
+      margin: 0;
+    }}
+    .content-helper {{
+      align-items: center;
+      display: grid;
+      grid-template-columns: minmax(13rem, 20rem) auto;
+      gap: .5rem;
+      margin-top: 0;
+      max-width: 100%;
+      width: fit-content;
+    }}
+    .content-helper select {{
+      margin: 0;
+      max-width: none;
+      width: 100%;
+    }}
+    .content-helper button {{
+      align-self: stretch;
+      margin: 0;
+    }}
+    .emoji-picker {{
+      width: fit-content;
+      max-width: 100%;
     }}
     .template-suggestions,
     .entity-suggestions {{
@@ -1201,7 +1493,8 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       top: calc(100% + .25rem);
       z-index: 10;
     }}
-    .entity-suggestions {{
+    .entity-suggestions,
+    .template-suggestions {{
       max-height: 420px;
       right: auto;
       width: min(560px, calc(100vw - 2rem));
@@ -1265,7 +1558,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       border: 1px solid #22433e;
       border-radius: 8px;
       margin-top: .8rem;
-      max-width: 320px;
+      max-width: 360px;
       padding: .8rem;
     }}
     .watch-row {{
@@ -1295,7 +1588,52 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     .watch-subtitle[hidden] {{
       display: none;
     }}
+    .glance-panel .action-row {{
+      margin-top: 1rem;
+    }}
+    .settings-panel .note:first-of-type {{
+      margin-bottom: .9rem;
+    }}
     @media (max-width: 640px) {{
+      body {{
+        padding: 12px;
+      }}
+      .panel {{
+        padding: .85rem;
+      }}
+      button, a.button {{
+        white-space: normal;
+      }}
+      .copy-row {{
+        grid-template-columns: minmax(0, 1fr) auto;
+      }}
+      #update-base-url {{
+        grid-column: 1 / -1;
+      }}
+      .content-helper {{
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+      }}
+      .template-control-row {{
+        align-items: stretch;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+      }}
+      .template-control-row .content-helper {{
+        display: grid;
+      }}
+      .template-control-row select,
+      .template-control-row button {{
+        width: 100%;
+      }}
+      .content-helper button,
+      .template-tools > button,
+      .action-row > button {{
+        width: 100%;
+      }}
+      .watch-preview {{
+        max-width: none;
+      }}
       .item-row {{
         align-items: stretch;
         grid-template-columns: 1fr;
@@ -1359,7 +1697,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         <button id="copy-panel-copy" type="button">Copy</button>
       </div>
     </div>
-    <details class="panel">
+    <details class="panel settings-panel">
       <summary>Quick start help</summary>
       <p>GarminHomeAssistant needs a secure URL that the Garmin Connect phone app can reach.</p>
       <ul>
@@ -1402,7 +1740,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       </div>
     </details>
 
-    <section class="panel">
+    <section class="panel glance-panel">
       <h2>Glance</h2>
       <div class="grid">
         <div>
@@ -1414,14 +1752,30 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         </div>
         <div id="glance-template-field">
           <label for="glance-content">Glance text template</label>
-          <div class="template-wrap">
-            <input id="glance-content" placeholder="Solar Battery: {{ states('sensor.example') }}%" autocomplete="off">
-            <div class="template-suggestions" id="glance-template-suggestions"></div>
-          </div>
-          <div class="template-tools">
-            <div class="emoji-picker">
-              <button type="button" class="emoji-toggle">Insert Emoji</button>
+          <div class="text-input-with-action">
+            <div class="template-wrap">
+              <input id="glance-content" placeholder="Solar Battery: {{ states('sensor.example') }}%" autocomplete="off">
+              <div class="template-suggestions" id="glance-template-suggestions"></div>
+            </div>
+            <div class="emoji-picker inline-emoji">
+              <button type="button" class="emoji-toggle" title="Insert emoji" aria-label="Insert emoji">☺</button>
               <div class="emoji-grid" data-target="glance-content"></div>
+            </div>
+          </div>
+          <div class="template-control-row">
+            <div class="content-helper">
+              <select id="glance-content-preset" aria-label="Glance template helper">
+                <option value="">Template helper...</option>
+                <option value="state">Selected entity state</option>
+                <option value="state_with_unit">State with unit</option>
+                <option value="friendly_on_off">Friendly on/off text</option>
+                <option value="brightness_percent">Light brightness percent</option>
+                <option value="media_volume_percent">Media volume percent</option>
+                <option value="amplifier_db">Amplifier dB from volume level</option>
+                <option value="battery_percent">Battery percent</option>
+                <option value="unavailable_safe">Show unavailable clearly</option>
+              </select>
+              <button class="insert-button" id="insert-glance-preset" type="button">Insert helper</button>
             </div>
           </div>
         </div>
@@ -1445,10 +1799,12 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       </div>
       <div>
         <label class="required-label" for="item-name">Name on watch</label>
-        <input id="item-name" placeholder="Living Room">
-        <div class="emoji-picker">
-          <button type="button" class="emoji-toggle">Insert Emoji</button>
-          <div class="emoji-grid" data-target="item-name"></div>
+        <div class="text-input-with-action">
+          <input id="item-name" placeholder="Living Room">
+          <div class="emoji-picker inline-emoji">
+            <button type="button" class="emoji-toggle" title="Insert emoji" aria-label="Insert emoji">☺</button>
+            <div class="emoji-grid" data-target="item-name"></div>
+          </div>
         </div>
       </div>
       <div>
@@ -1525,16 +1881,33 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         </ul>
       </div>
     </div>
-    <label for="item-content">Secondary text template</label>
-    <div class="template-wrap">
-      <input id="item-content" placeholder="{{ states('sensor.example') }}" autocomplete="off">
-      <div class="template-suggestions" id="item-template-suggestions"></div>
-    </div>
-    <div class="template-tools">
-      <button class="insert-button" id="insert-item-state">Insert selected entity state</button>
-      <div class="emoji-picker">
-        <button type="button" class="emoji-toggle">Insert Emoji</button>
+    <label for="item-content">Watch row content template</label>
+    <div class="text-input-with-action">
+      <div class="template-wrap">
+        <input id="item-content" placeholder="Optional, e.g. {{ states('sensor.example') }}" autocomplete="off">
+        <div class="template-suggestions" id="item-template-suggestions"></div>
+      </div>
+      <div class="emoji-picker inline-emoji">
+        <button type="button" class="emoji-toggle" title="Insert emoji" aria-label="Insert emoji">☺</button>
         <div class="emoji-grid" data-target="item-content"></div>
+      </div>
+    </div>
+    <div class="help">This is GarminHomeAssistant's <code>content</code> field. It controls the smaller text shown under the watch row name. It is required for info rows and optional for toggles, actions, number pickers, and submenus.</div>
+    <div class="template-control-row">
+      <div class="content-helper">
+        <select id="item-content-preset" aria-label="Watch row content template helper">
+          <option value="">Template helper...</option>
+          <option value="state">Selected entity state</option>
+          <option value="state_with_unit">State with unit</option>
+          <option value="friendly_on_off">Friendly on/off text</option>
+          <option value="brightness_percent">Light brightness percent</option>
+          <option value="media_volume_percent">Media volume percent</option>
+          <option value="amplifier_db">Amplifier dB from volume level</option>
+          <option value="battery_percent">Battery percent</option>
+          <option value="count_on">Count on entities in a group</option>
+          <option value="unavailable_safe">Show unavailable clearly</option>
+        </select>
+        <button class="insert-button" id="insert-item-preset" type="button">Insert helper</button>
       </div>
       <span class="item-meta" id="item-template-result" style="display:none"></span>
     </div>
@@ -1543,7 +1916,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         <div class="watch-type" id="watch-preview-icon">i</div>
         <div>
           <div class="watch-title" id="watch-preview-title">Item preview</div>
-          <div class="watch-subtitle" id="watch-preview-subtitle">Secondary text preview</div>
+          <div class="watch-subtitle" id="watch-preview-subtitle">Content preview</div>
         </div>
       </div>
     </div>
@@ -1587,10 +1960,12 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     <div class="grid">
       <div>
         <label for="group-name">Submenu name</label>
-        <input id="group-name" placeholder="Living Room">
-        <div class="emoji-picker">
-          <button type="button" class="emoji-toggle">Insert Emoji</button>
-          <div class="emoji-grid" data-target="group-name"></div>
+        <div class="text-input-with-action">
+          <input id="group-name" placeholder="Living Room">
+          <div class="emoji-picker inline-emoji">
+            <button type="button" class="emoji-toggle" title="Insert emoji" aria-label="Insert emoji">☺</button>
+            <div class="emoji-grid" data-target="group-name"></div>
+          </div>
         </div>
       </div>
       <div>
@@ -1600,15 +1975,31 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
         </select>
       </div>
     </div>
-    <label for="group-content">Submenu secondary text template</label>
-    <div class="template-wrap">
-      <input id="group-content" placeholder="Optional status text shown under the submenu" autocomplete="off">
-      <div class="template-suggestions" id="group-template-suggestions"></div>
-    </div>
-    <div class="template-tools">
-      <div class="emoji-picker">
-        <button type="button" class="emoji-toggle">Insert Emoji</button>
+    <label for="group-content">Submenu row content template</label>
+    <div class="text-input-with-action">
+      <div class="template-wrap">
+        <input id="group-content" placeholder="Optional status text shown under the submenu" autocomplete="off">
+        <div class="template-suggestions" id="group-template-suggestions"></div>
+      </div>
+      <div class="emoji-picker inline-emoji">
+        <button type="button" class="emoji-toggle" title="Insert emoji" aria-label="Insert emoji">☺</button>
         <div class="emoji-grid" data-target="group-content"></div>
+      </div>
+    </div>
+    <div class="help">Optional GarminHomeAssistant <code>content</code> for the submenu row. Use it for compact room status such as lights on, door open, or media state.</div>
+    <div class="template-control-row">
+      <div class="content-helper">
+        <select id="group-content-preset" aria-label="Submenu content template helper">
+          <option value="">Template helper...</option>
+          <option value="state">Selected entity state</option>
+          <option value="state_with_unit">State with unit</option>
+          <option value="friendly_on_off">Friendly on/off text</option>
+          <option value="media_volume_percent">Media volume percent</option>
+          <option value="amplifier_db">Amplifier dB from volume level</option>
+          <option value="count_on">Count on entities in a group</option>
+          <option value="unavailable_safe">Show unavailable clearly</option>
+        </select>
+        <button class="insert-button" id="insert-group-preset" type="button">Insert helper</button>
       </div>
       <span class="item-meta" id="group-template-result" style="display:none"></span>
     </div>
@@ -1664,6 +2055,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       <div class="unsaved-copy">
         <div class="unsaved-title">Unsaved dashboard changes</div>
         <div class="unsaved-detail">Save to publish these changes to GarminHomeAssistant.</div>
+        <div class="unsaved-detail validation-detail" id="unsaved-validation">Validation pending...</div>
       </div>
       <div class="unsaved-actions">
         <button id="unsaved-save">Save dashboard</button>
@@ -1677,6 +2069,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     const statusEl = document.getElementById('status');
     const staleWarning = document.getElementById('stale-warning');
     const unsavedBar = document.getElementById('unsaved-bar');
+    const unsavedValidation = document.getElementById('unsaved-validation');
     const unsavedSave = document.getElementById('unsaved-save');
     const unsavedReload = document.getElementById('unsaved-reload');
     const baseUrlInput = document.getElementById('base-url');
@@ -1689,6 +2082,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     const copyPanelCopy = document.getElementById('copy-panel-copy');
     const glanceType = document.getElementById('glance-type');
     const glanceContent = document.getElementById('glance-content');
+    const glanceContentPreset = document.getElementById('glance-content-preset');
     const glanceTemplateField = document.getElementById('glance-template-field');
     const itemList = document.getElementById('item-list');
     const entityPicker = document.getElementById('entity-picker');
@@ -1697,6 +2091,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     const itemName = document.getElementById('item-name');
     const itemType = document.getElementById('item-type');
     const itemContent = document.getElementById('item-content');
+    const itemContentPreset = document.getElementById('item-content-preset');
     const itemEnabled = document.getElementById('item-enabled');
     const itemPin = document.getElementById('item-pin');
     const itemExit = document.getElementById('item-exit');
@@ -1720,6 +2115,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     const parentGroup = document.getElementById('parent-group');
     const groupName = document.getElementById('group-name');
     const groupContent = document.getElementById('group-content');
+    const groupContentPreset = document.getElementById('group-content-preset');
     const groupTitle = document.getElementById('group-title');
     const groupEnabled = document.getElementById('group-enabled');
     const groupTemplateResult = document.getElementById('group-template-result');
@@ -2447,6 +2843,8 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     let groupPreviewTimer = null;
     let itemPreviewRequest = 0;
     let groupPreviewRequest = 0;
+    let validationTimer = null;
+    let validationRequest = 0;
     let editingItemId = null;
     let editingGroupId = null;
     const suggestionState = new WeakMap();
@@ -2608,6 +3006,55 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     function updateUnsavedBar() {{
       const dirty = Boolean(lastSavedDashboard) && dashboard.value !== lastSavedDashboard;
       unsavedBar.classList.toggle('visible', dirty);
+      scheduleGarminValidation(dirty);
+    }}
+
+    function setValidationStatus(message, kind = '') {{
+      unsavedValidation.textContent = message;
+      unsavedValidation.classList.remove('valid', 'warning', 'error');
+      if (kind) unsavedValidation.classList.add(kind);
+    }}
+
+    function scheduleGarminValidation(dirty) {{
+      clearTimeout(validationTimer);
+      if (!dirty) {{
+        setValidationStatus('Generated Garmin JSON was valid when last saved.', 'valid');
+        return;
+      }}
+      setValidationStatus('Checking generated Garmin JSON...');
+      validationTimer = setTimeout(validateGeneratedGarminJson, 550);
+    }}
+
+    async function validateGeneratedGarminJson() {{
+      const requestId = ++validationRequest;
+      try {{
+        const parsed = readDashboard();
+        const response = await fetch('{GARMIN_HOMEASSISTANT_VALIDATE_PATH}', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify(parsed),
+        }});
+        const body = await response.json();
+        if (requestId !== validationRequest) return;
+        if (!response.ok) {{
+          setValidationStatus('Validation failed: ' + (body.message || response.status), 'error');
+          return;
+        }}
+        if (body.valid) {{
+          const warnings = body.warnings || [];
+          if (warnings.length) {{
+            setValidationStatus('Generated Garmin JSON valid with warning: ' + warnings[0], 'warning');
+          }} else {{
+            setValidationStatus('Generated Garmin JSON looks valid.', 'valid');
+          }}
+          return;
+        }}
+        const errors = body.errors || [];
+        setValidationStatus('Garmin JSON issue: ' + (errors[0] || 'Unknown validation issue'), 'error');
+      }} catch (err) {{
+        if (requestId !== validationRequest) return;
+        setValidationStatus('Validation failed: ' + err.message, 'error');
+      }}
     }}
 
     function writeDashboard(value) {{
@@ -2799,13 +3246,17 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
 
         const up = document.createElement('button');
         up.className = 'icon-button action-up';
-        up.textContent = 'Up';
+        up.textContent = '↑';
+        up.title = 'Move up';
+        up.setAttribute('aria-label', 'Move up');
         up.disabled = index === 0;
         bindButton(up, () => moveItem(item.id, -1));
 
         const down = document.createElement('button');
         down.className = 'icon-button action-down';
-        down.textContent = 'Down';
+        down.textContent = '↓';
+        down.title = 'Move down';
+        down.setAttribute('aria-label', 'Move down');
         down.disabled = index === items.length - 1;
         bindButton(down, () => moveItem(item.id, 1));
 
@@ -3104,14 +3555,32 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       return '\\u2139\\uFE0F';
     }}
 
+    function applySelectedEntity() {{
+      const meta = entityMeta(entityPicker.value.trim());
+      if (!meta) {{
+        updateWatchPreview();
+        return;
+      }}
+      if (!itemName.value.trim()) itemName.value = meta.name;
+      if (itemType.value === 'auto') {{
+        if (['light', 'switch', 'input_boolean'].includes(meta.domain)) itemType.value = 'toggle';
+        else if (['automation', 'scene', 'script'].includes(meta.domain)) itemType.value = 'tap';
+        else if (['input_number', 'number', 'fan', 'valve', 'cover', 'media_player', 'climate'].includes(meta.domain)) itemType.value = 'numeric';
+        else itemType.value = 'info';
+      }}
+      updateBehaviorHelp();
+      updateWatchPreview();
+      scheduleItemTemplatePreview();
+    }}
+
     function updateBehaviorHelp() {{
       const value = itemType.value;
       const meta = entityMeta(entityPicker.value.trim());
       const help = {{
         auto: 'Automatic chooses the GarminHomeAssistant item type from the entity domain. This is best for most users.',
         toggle: 'Toggle is for lights, switches, input booleans, and similar on/off entities. Select the entity first; advanced options are usually not needed.',
-        tap: 'Run action is for scripts, scenes, automations, buttons, or custom services. Select an entity first, or enter a Custom action below.',
-        info: 'Info only shows a row on the watch without running an action. Secondary text is optional.',
+        tap: 'Run action is for scripts, scenes, automations, buttons, or custom services. Add optional row content when you want status text under the action name.',
+        info: 'Info only shows a row on the watch without running an action. Row content is the main value this item displays.',
         numeric: 'Number picker needs an entity first, such as a light, fan, cover, media player, climate entity, input_number, or number entity. Defaults are filled from the entity type; use Numeric picker options only to override them.',
       }};
       if (value === 'numeric') {{
@@ -3238,9 +3707,14 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       for (const entity of matches) {{
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'template-suggestion';
+        button.className = 'template-suggestion entity-suggestion';
         button.dataset.entityId = entity.entity_id;
-        button.innerHTML = escapeHtml(entity.entity_id) + '<small>' + escapeHtml(entity.name + ' - ' + entity.domain) + '</small>';
+        const areaText = entity.area || 'Home Assistant';
+        button.innerHTML =
+          '<div class="entity-icon">' + escapeHtml(entityIcon(entity)) + '</div>' +
+          '<div><div class="entity-name">' + escapeHtml(entity.name) + '</div>' +
+          '<div class="entity-sub">' + escapeHtml(areaText + ' - ' + entity.entity_id) + '</div></div>' +
+          '<div class="entity-domain">' + escapeHtml(entityTypeLabel(entity)) + '</div>';
         button.addEventListener('mousedown', (event) => {{
           event.preventDefault();
           applyTemplateSuggestion(input, entity.entity_id);
@@ -3254,7 +3728,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
     function applyEntitySuggestion(entityId) {{
       entityPicker.value = entityId;
       hideEntitySuggestions();
-      entityPicker.dispatchEvent(new Event('change'));
+      applySelectedEntity();
     }}
 
     function renderEntitySuggestions() {{
@@ -3310,10 +3784,7 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
           '<div><div class="entity-name">' + escapeHtml(entity.name) + '</div>' +
           '<div class="entity-sub">' + escapeHtml(areaText + ' - ' + entity.entity_id) + '</div></div>' +
           '<div class="entity-domain">' + escapeHtml(entityTypeLabel(entity)) + '</div>';
-        button.addEventListener('mousedown', (event) => {{
-          event.preventDefault();
-          applyEntitySuggestion(entity.entity_id);
-        }});
+        bindButton(button, () => applyEntitySuggestion(entity.entity_id));
         entitySuggestions.appendChild(button);
       }}
       entitySuggestions.style.display = 'block';
@@ -3349,10 +3820,47 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       }}
     }}
 
-    function selectedEntityStateTemplate() {{
-      const entityId = entityPicker.value.trim();
-      if (!entityId) return '';
-      return "{{{{ states('" + entityId + "') }}}}";
+    function contentTemplatePreset(kind) {{
+      const entityId = entityPicker.value.trim() || 'sensor.example';
+      if (kind === 'state') {{
+        return "{{{{ states('" + entityId + "') }}}}";
+      }}
+      if (kind === 'state_with_unit') {{
+        return "{{{{ states('" + entityId + "') }}}} {{{{ state_attr('" + entityId + "', 'unit_of_measurement') or '' }}}}";
+      }}
+      if (kind === 'friendly_on_off') {{
+        return "{{{{ 'On' if is_state('" + entityId + "', 'on') else 'Off' }}}}";
+      }}
+      if (kind === 'brightness_percent') {{
+        return "{{{{ ((state_attr('" + entityId + "', 'brightness') | int(0) / 255) * 100) | round(0) }}}}%";
+      }}
+      if (kind === 'media_volume_percent') {{
+        return "{{{{ ((state_attr('" + entityId + "', 'volume_level') | float(0)) * 100) | round(0) }}}}%";
+      }}
+      if (kind === 'amplifier_db') {{
+        return "{{% if is_state('" + entityId + "', 'unavailable') %}}Off{{% else %}}{{{{ '%.1f' | format((state_attr('" + entityId + "', 'volume_level') | float(0)) * 100 - 80) }}}} dB{{% endif %}}";
+      }}
+      if (kind === 'battery_percent') {{
+        return "{{{{ states('" + entityId + "') }}}}%";
+      }}
+      if (kind === 'count_on') {{
+        return "{{{{ expand('" + entityId + "') | selectattr('state', 'eq', 'on') | list | count }}}} on";
+      }}
+      if (kind === 'unavailable_safe') {{
+        return "{{{{ states('" + entityId + "') if states('" + entityId + "') not in ['unknown', 'unavailable'] else 'Unavailable' }}}}";
+      }}
+      return '';
+    }}
+
+    function insertContentPreset(input, select, statusKey) {{
+      const snippet = contentTemplatePreset(select.value);
+      if (!snippet) {{
+        setStatus('Choose a template helper first.', true, statusKey);
+        return;
+      }}
+      insertAtCursor(input, snippet);
+      select.value = '';
+      setStatus('Template helper inserted. Preview will update automatically.', false, statusKey);
     }}
 
     function rememberCaret(input) {{
@@ -3601,21 +4109,12 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       }}, 450);
     }}
 
-    entityPicker.addEventListener('change', () => {{
-      const meta = entityMeta(entityPicker.value);
-      if (!meta) return;
-      if (!itemName.value) itemName.value = meta.name;
-      if (itemType.value === 'auto') {{
-        if (['light', 'switch', 'input_boolean'].includes(meta.domain)) itemType.value = 'toggle';
-        else if (['automation', 'scene', 'script'].includes(meta.domain)) itemType.value = 'tap';
-        else if (['input_number', 'number', 'fan', 'valve', 'cover', 'media_player', 'climate'].includes(meta.domain)) itemType.value = 'numeric';
-        else itemType.value = 'info';
-      }}
-      updateBehaviorHelp();
-      updateWatchPreview();
-      scheduleItemTemplatePreview();
+    entityPicker.addEventListener('change', applySelectedEntity);
+    entityPicker.addEventListener('input', () => {{
+      renderEntitySuggestions();
+      if (entityMeta(entityPicker.value.trim())) applySelectedEntity();
+      else updateWatchPreview();
     }});
-    entityPicker.addEventListener('input', renderEntitySuggestions);
     entityPicker.addEventListener('focus', renderEntitySuggestions);
     entityPicker.addEventListener('blur', () => setTimeout(hideEntitySuggestions, 150));
     entityPicker.addEventListener('keydown', handleEntitySuggestionKeys);
@@ -3757,13 +4256,17 @@ def _builder_html(dashboard: dict, base_url: str) -> str:
       }}
     }});
 
-    bindButton(document.getElementById('insert-item-state'), () => {{
-      const snippet = selectedEntityStateTemplate();
-      if (!snippet) {{
-        setStatus('Choose an entity first.', true, 'item');
-        return;
-      }}
-      insertAtCursor(itemContent, snippet);
+    bindButton(document.getElementById('insert-item-preset'), () => {{
+      insertContentPreset(itemContent, itemContentPreset, 'item');
+    }});
+
+    bindButton(document.getElementById('insert-group-preset'), () => {{
+      insertContentPreset(groupContent, groupContentPreset, 'group');
+    }});
+
+    bindButton(document.getElementById('insert-glance-preset'), () => {{
+      insertContentPreset(glanceContent, glanceContentPreset, 'glance');
+      updateGlanceJson(false);
     }});
 
     bindButton(cancelEditItemButton, resetItemForm);

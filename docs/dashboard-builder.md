@@ -60,7 +60,7 @@ Typical flow:
 1. Pick an entity.
 2. Confirm or edit the watch name.
 3. Choose a behavior.
-4. Add optional secondary text.
+4. Add optional watch row content.
 5. Select **Add item**.
 6. Select **Save dashboard**.
 
@@ -100,8 +100,8 @@ blank unless you need to override what GarminHomeAssistant would normally infer.
 
 ### Behavior: Info Only
 
-Info Only shows a row on the watch without running an action. Use the secondary
-text template for status details.
+Info Only shows a row on the watch without running an action. Use **Watch row
+content template** for the value or status details shown under the row name.
 
 ### Behavior: Number Picker
 
@@ -179,6 +179,28 @@ Examples:
 Items and submenus can be nested. Use the parent submenu field to choose where a
 new item should appear.
 
+Submenus can also have row content. This is useful for compact room summaries,
+such as how many lights are on or whether a door/window is open.
+
+## Content Templates
+
+GarminHomeAssistant calls the smaller row text `content`. The builder exposes
+this as **Watch row content template** for items and **Submenu row content
+template** for submenus.
+
+Use content templates for:
+
+- sensor values
+- friendly on/off text
+- brightness percentages
+- battery percentages
+- room or group summaries
+- emoji-enhanced status rows
+
+The **Template helper** dropdown inserts common Home Assistant template patterns.
+The template field still remains editable, so advanced users can customize the
+inserted template.
+
 ## Menu Items
 
 The Menu Items section shows the saved draft structure.
@@ -203,6 +225,12 @@ Use JSON directly only when:
 - inspecting generated GarminHomeAssistant output
 - using a GarminHomeAssistant feature the builder does not yet expose
 
+When the dashboard has unsaved changes, the sticky save bar automatically checks
+the generated GarminHomeAssistant menu. This validation is intentionally
+practical and local: it checks the generated menu structure and common
+GarminHomeAssistant requirements without requiring a separate schema validation
+dependency.
+
 ## Current Coverage
 
 The builder currently supports:
@@ -215,7 +243,7 @@ The builder currently supports:
 - run action items
 - numeric picker items
 - submenus and nested submenus
-- secondary text templates
+- watch row content templates
 - emoji insertion
 - entity/template suggestions
 - item preview
@@ -225,11 +253,7 @@ The builder currently supports:
 - optional exit-after-action
 - enabled/disabled items
 - advanced JSON editing
+- generated Garmin JSON validation
 
 The goal is to keep expanding form coverage so fewer users need the JSON editor.
 
-## Screenshots
-
-See [Screenshots](screenshots/README.md) for the current screenshot checklist.
-Screenshots should show the actual Home Assistant builder and the current
-GarminHomeAssistant companion workflow.

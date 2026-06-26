@@ -115,6 +115,9 @@ class GarminHomeAssistantDashboardView(HomeAssistantView):
         except ValueError:
             return _json_error("bad_request", "Expected JSON body", 400)
 
+        if not isinstance(data, dict):
+            return _json_error("bad_request", "Expected a JSON object", 400)
+
         current = await async_get_dashboard(request.app["hass"])
         if str(data.get("setup_code", "")).upper() != current["setup_code"]:
             return _json_error("invalid_setup_code", "Invalid setup code", 403)
@@ -173,7 +176,7 @@ class GarminHomeAssistantEntitiesView(HomeAssistantView):
             area_registry = ar.async_get(hass)
             device_registry = dr.async_get(hass)
             entity_registry = er.async_get(hass)
-        except Exception:  # noqa: BLE001 - registry helpers vary by HA version
+        except (ImportError, AttributeError):
             area_registry = None
             device_registry = None
             entity_registry = None
@@ -234,6 +237,9 @@ class GarminHomeAssistantTemplatePreviewView(HomeAssistantView):
         except ValueError:
             return _json_error("bad_request", "Expected JSON body", 400)
 
+        if not isinstance(data, dict):
+            return _json_error("bad_request", "Expected a JSON object", 400)
+
         dashboard = await async_get_dashboard(hass)
         if str(data.get("setup_code", "")).upper() != dashboard["setup_code"]:
             return _json_error("invalid_setup_code", "Invalid setup code", 403)
@@ -273,6 +279,9 @@ class GarminHomeAssistantValidateView(HomeAssistantView):
             data = await request.json()
         except ValueError:
             return _json_error("bad_request", "Expected JSON body", 400)
+
+        if not isinstance(data, dict):
+            return _json_error("bad_request", "Expected a JSON object", 400)
 
         dashboard = await async_get_dashboard(hass)
         if str(data.get("setup_code", "")).upper() != dashboard["setup_code"]:
@@ -616,7 +625,7 @@ async def _async_cloud_remote_url(hass: HomeAssistant) -> str | None:
             url = await cloud.async_remote_ui_url(hass)
             if url:
                 return str(url)
-    except Exception as err:  # noqa: BLE001 - cloud is optional and versioned
+    except (ImportError, AttributeError) as err:
         _LOGGER.debug("Could not discover Home Assistant Cloud URL: %s", err)
 
     cloud_data = hass.data.get("cloud")

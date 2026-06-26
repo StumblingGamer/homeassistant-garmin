@@ -1,4 +1,4 @@
-﻿"""HTTP API for Home Assistant for Garmin."""
+""HTTP API for Home Assistant for Garmin."""
 
 from __future__ import annotations
 

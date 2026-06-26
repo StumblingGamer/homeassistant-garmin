@@ -3,6 +3,8 @@
   "name": "Home Assistant for Garmin",
   "codeowners": ["@StumblingGamer"],
   "config_flow": true,
+  "dependencies": ["http"],
+  "after_dependencies": ["cloud"],
   "documentation": "https://github.com/StumblingGamer/homeassistant-garmin",
   "integration_type": "service",
   "iot_class": "local_polling",
